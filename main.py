@@ -5,14 +5,14 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, Any
 
-# -------- App --------
+# ---------------- App ----------------
 app = FastAPI(title="DrizzleGPT")
 
-# -------- Globals --------
+# ---------------- Globals ----------------
 retriever = None
 GEN_BACKEND = os.getenv("GENERATOR", "openai")
 
-# -------- Models --------
+# ---------------- Models ----------------
 class ChatRequest(BaseModel):
     user_id: Optional[str]
     message: str
@@ -23,7 +23,7 @@ class ChatResponse(BaseModel):
     reply: str
     sim_output: Optional[Any] = None
 
-# -------- Async OpenAI wrapper --------
+# ---------------- Async OpenAI wrapper ----------------
 async def async_generate(prompt: str) -> str:
     from openai import OpenAI
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -31,7 +31,7 @@ async def async_generate(prompt: str) -> str:
     def sync_call():
         try:
             response = client.chat.completions.create(
-                model=os.getenv("OPENAI_MODEL","gpt-3.5-turbo"),
+                model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
                 messages=[
                     {"role": "system", "content": "You are Drizzle, a helpful assistant."},
                     {"role": "user", "content": prompt}
@@ -45,47 +45,51 @@ async def async_generate(prompt: str) -> str:
 
     return await asyncio.to_thread(sync_call)
 
-# -------- POST /chat --------
+# ---------------- POST /chat ----------------
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     global retriever
+    try:
+        # Lazy-load retriever
+        if retriever is None:
+            from rag_setup import Retriever
+            retriever = Retriever(
+                index_path="faiss_index.pkl",
+                embedding_model="all-MiniLM-L6-v2"
+            )
 
-    # Lazy-load retriever
-    if retriever is None:
-        from rag_setup import Retriever
-        retriever = Retriever(
-            index_path="faiss_index.pkl",
-            embedding_model="all-MiniLM-L6-v2"
-        )
+        # Optional simulation
+        sim_result = None
+        if req.run_sim:
+            try:
+                from simulation import run_simulation
+                sim_result = run_simulation(req.sim_params or {})
+            except Exception as e:
+                sim_result = {"error": str(e)}
 
-    # Optional simulation
-    sim_result = None
-    if req.run_sim:
-        try:
-            from simulation import run_simulation
-            sim_result = run_simulation(req.sim_params or {})
-        except Exception as e:
-            sim_result = {"error": str(e)}
+        # Get relevant docs
+        docs = retriever.get_relevant(req.message, k=4)
+        context_text = "\n\n---\n\n".join(docs)
 
-    # Get relevant docs
-    docs = retriever.get_relevant(req.message, k=4)
-    context_text = "\n\n---\n\n".join(docs)
+        # Compose prompt
+        prompt = f"You are Drizzle, a helpful assistant.\n\nContext:\n{context_text}\n\nDrizzle: {req.message}"
+        if sim_result:
+            prompt += "\n\nSimulation results:\n" + str(sim_result.get("summary",""))
 
-    # Compose prompt
-    prompt = f"You are Drizzle, a helpful assistant.\n\nContext:\n{context_text}\n\nDrizzle: {req.message}"
-    if sim_result:
-        prompt += "\n\nSimulation results:\n" + str(sim_result.get("summary",""))
+        # Generate reply
+        reply = await async_generate(prompt)
+        return ChatResponse(reply=reply, sim_output=sim_result)
 
-    # Async generate
-    reply = await async_generate(prompt)
-    return ChatResponse(reply=reply, sim_output=sim_result)
+    except Exception as e:
+        # Always return valid JSON
+        return ChatResponse(reply=f"[Error generating response: {str(e)}]", sim_output=None)
 
-# -------- Health check --------
+# ---------------- Health check ----------------
 @app.get("/kaithheathcheck")
 async def health_check():
     return {"status": "ok", "message": "DrizzleGPT is healthy!"}
 
-# -------- HTML frontend --------
+# ---------------- HTML frontend ----------------
 @app.get("/", response_class=HTMLResponse)
 async def chat_page():
     return """<!DOCTYPE html>
