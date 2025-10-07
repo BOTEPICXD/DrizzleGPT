@@ -1,2 +1,2 @@
-# stupid gpt pls dont actually use this
-only used as a project to help me learn coding using chatgpt 🤑 my goal is to actually optimize it fully without any ai in the code but im taking one step atta time
+# open source Drizzle GPT
+unoptimized ahh ai js use if u wanna learn how to code ais or smth idk 41 but i got 41 gold
