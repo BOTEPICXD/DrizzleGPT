@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+langchain
+transformers
+accelerate
+datasets
+sentence_transformers
+faiss-cpu
+pydantic
+python-multipart
+aiofiles
+openai
+tiktoken
+requests
