@@ -1,4 +1,5 @@
 import os
+import asyncio
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -9,7 +10,6 @@ app = FastAPI(title="DrizzleGPT")
 
 # -------- Globals --------
 retriever = None
-generate_func = None
 GEN_BACKEND = os.getenv("GENERATOR", "openai")
 
 # -------- Models --------
@@ -23,34 +23,32 @@ class ChatResponse(BaseModel):
     reply: str
     sim_output: Optional[Any] = None
 
+# -------- Async OpenAI wrapper --------
+async def async_generate(prompt: str) -> str:
+    from openai import OpenAI
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    def sync_call():
+        try:
+            response = client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL","gpt-3.5-turbo"),
+                messages=[
+                    {"role": "system", "content": "You are Drizzle, a helpful assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=600,
+                temperature=0.2
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            return f"[Error generating response: {str(e)}]"
+
+    return await asyncio.to_thread(sync_call)
+
 # -------- POST /chat --------
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    global retriever, generate_func
-
-    # Lazy-load generator
-    if generate_func is None:
-        if GEN_BACKEND == "openai":
-            from openai import OpenAI
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            def generate(prompt: str) -> str:
-                try:
-                    response = client.chat.completions.create(
-                        model=os.getenv("OPENAI_MODEL","gpt-4o-mini"),
-                        messages=[
-                            {"role": "system", "content": "You are Drizzle, a helpful assistant."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        max_tokens=600,
-                        temperature=0.2
-                    )
-                    return response.choices[0].message.content.strip()
-                except Exception as e:
-                    return f"[Error generating response: {str(e)}]"
-            generate_func = generate
-        else:
-            from generators.hf_gen import generate
-            generate_func = generate
+    global retriever
 
     # Lazy-load retriever
     if retriever is None:
@@ -78,7 +76,8 @@ async def chat(req: ChatRequest):
     if sim_result:
         prompt += "\n\nSimulation results:\n" + str(sim_result.get("summary",""))
 
-    reply = generate_func(prompt)
+    # Async generate
+    reply = await async_generate(prompt)
     return ChatResponse(reply=reply, sim_output=sim_result)
 
 # -------- Health check --------
@@ -151,7 +150,7 @@ function appendMessage(sender,text) {
     const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
     div.innerHTML=`<strong>${label}</strong>: ${text}<div class="timestamp">${time}</div>`;
     chatDiv.appendChild(div);
-    chatDiv.scrollTop=chatDiv.scrollHeight;
+    chatDiv.scrollTop = chatDiv.scrollHeight;
 }
 
 async function sendMessage() {
