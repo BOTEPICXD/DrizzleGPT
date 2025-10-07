@@ -76,11 +76,15 @@ async def chat(req: ChatRequest):
     reply = generate_func(prompt)
     return ChatResponse(reply=reply, sim_output=sim_result)
 
+# -------- Health Check for Leapcell --------
+@app.get("/kaithheathcheck")
+async def health_check():
+    return {"status": "ok", "message": "DrizzleGPT is healthy!"}
+
 # -------- GET / (HTML frontend) --------
 @app.get("/", response_class=HTMLResponse)
 async def chat_page():
-    return """
-<!DOCTYPE html>
+    return """<!DOCTYPE html>
 <html>
 <head>
     <title>DrizzleGPT</title>
